@@ -8,15 +8,16 @@ DB_NAME = "chat_history.db"
 
 @asynccontextmanager
 async def _db():
-    """Соединение с общими настройками безопасности. Коммит только при успехе, иначе откат."""
-    db = await aiosqlite.connect(DB_NAME)
+    """Connection with common security settings. Commit only on success, otherwise rollback."""
+    db = await aiosqlite.connect(DB_NAME)  # <--- Здесь была DB_Name с большой N
     try:
-        await db.execute("PRAGMA secure_delete = ON")   # стирать удаленные данные физически
+        await db.execute("PRAGMA secure_delete = ON")   # Securely overwrite deleted data physically
         await db.execute("PRAGMA foreign_keys = ON")
         yield db
         await db.commit()
     finally:
         await db.close()
+
 
 
 async def init_db() -> None:
@@ -42,11 +43,11 @@ async def init_db() -> None:
         )
         await db.execute("CREATE INDEX IF NOT EXISTS idx_messages_user ON messages (user_id, id)")
     if os.path.exists(DB_NAME):
-        os.chmod(DB_NAME, 0o600)  # читать файл может только владелец (не работает на Windows)
+        os.chmod(DB_NAME, 0o600)  # Restricted access: owner read/write only (does not work on Windows)
 
 
 async def add_user(user_id: int) -> None:
-    """Минимизация данных: храним только user_id, без username и имени."""
+    """Data minimization: store only user_id, without username or first name."""
     async with _db() as db:
         await db.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
 
@@ -70,21 +71,21 @@ async def get_user_history(user_id: int, limit: int = 10) -> list[dict]:
 
 
 async def clear_user_history(user_id: int) -> None:
-    """/reset: удаляет только переписку, профиль остается."""
+    """/reset: clears conversation history only, user profile remains intact."""
     async with _db() as db:
         await db.execute("DELETE FROM messages WHERE user_id = ?", (user_id,))
 
 
 async def delete_user_data(user_id: int) -> None:
-    """/delete_me: полное удаление данных пользователя (право на удаление по GDPR)."""
+    """/delete_me: complete user data erasure (GDPR Right to be Forgotten)."""
     async with _db() as db:
         await db.execute("DELETE FROM messages WHERE user_id = ?", (user_id,))
         await db.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
 
 
 async def purge_old_messages(days: int) -> int:
-    """Удаляет сообщения старше days дней. Возвращает количество удаленных строк."""
-    modifier = f"-{int(days)} days"  # int() защищает от некорректного значения
+    """Deletes messages older than the specified number of days. Returns the number of deleted rows."""
+    modifier = f"-{int(days)} days"  # int() protects against invalid values
     async with _db() as db:
         cursor = await db.execute(
             "DELETE FROM messages WHERE timestamp < datetime('now', ?)",
